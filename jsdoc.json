@@ -1,0 +1,23 @@
+{
+  "source": {
+    "include": ["./server.js"],
+    "includePattern": "\\.(js)$",
+    "exclude": ["node_modules/", "tmp/", "docs/"]
+  },
+  "opts": {
+    "destination": "./docs/",
+    "recurse": true,
+    "readme": "./README.md"
+  },
+  "plugins": [
+    "plugins/markdown"
+  ],
+  "templates": {
+    "cleverLinks": false,
+    "monospaceLinks": false
+  },
+  "metadata": {
+    "title": "Scroll Video Generator API Documentation",
+    "description": "Comprehensive API documentation for the Scroll Video Generator server"
+  }
+}

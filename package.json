@@ -1,0 +1,37 @@
+{
+  "name": "scroll-video-generator",
+  "version": "1.0.0",
+  "description": "Intelligent video generator that creates smooth scrolling animations from page screenshots with automatic phone frame detection and compositing",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "lint": "eslint server.js",
+    "lint:fix": "eslint server.js --fix",
+    "docs": "jsdoc -c jsdoc.json",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "engines": {
+    "node": "22.18.0"
+  },
+  "keywords": [
+    "video-generator",
+    "scrolling-animation",
+    "phone-frame",
+    "auto-detection",
+    "screenshot-compositor",
+    "ffmpeg",
+    "sharp",
+    "video-automation"
+  ],
+  "dependencies": {
+    "express": "^5.1.0",
+    "multer": "^2.0.2",
+    "rimraf": "^6.0.1",
+    "sharp": "^0.34.4"
+  },
+  "devDependencies": {
+    "eslint": "^8.0.0",
+    "jsdoc": "^4.0.4"
+  }
+}
