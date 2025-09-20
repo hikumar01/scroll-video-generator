@@ -14,9 +14,10 @@
  * - Comprehensive cleanup and memory management
  * - Fallback to manual parameter specification if auto-detection fails
  *
- * @author Scroll Video Generator Team
  * @version 1.0.0
  */
+
+'use strict';
 
 const express = require('express');
 const multer = require('multer');
@@ -363,6 +364,8 @@ app.post('/render', upload.fields([
 
   // Declare variables outside try block for error handling access
   let timestamp, sessionDir, frameFile, pageFile;
+  let cleanupData;
+  let isRequestCancelled = false;
 
   try {
     // Basic validation - only page is required, frame is optional
@@ -373,6 +376,53 @@ app.post('/render', upload.fields([
     // Initialize variables
     timestamp = Date.now();
     sessionDir = path.join(tmpRoot, `job_${timestamp}`);
+
+    // Set up cleanup data immediately for early cancellation handling
+    cleanupData = {
+      sessionDir,
+      timestamp,
+      uploadedFiles: []
+    };
+
+    if (req.files['frame'] && req.files['frame'][0]) {
+      cleanupData.uploadedFiles.push({
+        path: req.files['frame'][0].path,
+        type: 'frame'
+      });
+    }
+
+    if (req.files['page'] && req.files['page'][0]) {
+      cleanupData.uploadedFiles.push({
+        path: req.files['page'][0].path,
+        type: 'page'
+      });
+    }
+
+    // Set up early cleanup handlers for client disconnection
+    res.on('close', async() => {
+      if (!res.headersSent && !isRequestCancelled) {
+        isRequestCancelled = true;
+        console.warn(`⚠️ Client disconnected during processing for job_${timestamp}`);
+        await performJobCleanup(cleanupData, 'client-disconnect-early');
+      }
+    });
+
+    // Set up timeout-based cleanup as fallback
+    const cleanupTimeout = setTimeout(async() => {
+      if (!res.headersSent && !isRequestCancelled) {
+        isRequestCancelled = true;
+        console.warn(`⚠️ Request timeout - cleaning up job_${timestamp}`);
+        await performJobCleanup(cleanupData, 'timeout');
+      }
+    }, 300000); // 5 minutes timeout
+
+    // Clear timeout when request completes normally
+    const clearTimeoutOnComplete = () => {
+      clearTimeout(cleanupTimeout);
+    };
+
+    res.on('finish', clearTimeoutOnComplete);
+    res.on('error', clearTimeoutOnComplete);
 
     // Use provided frame or default frame
     if (req.files['frame'] && req.files['frame'][0]) {
@@ -420,6 +470,12 @@ app.post('/render', upload.fields([
         return res.status(400).json({
           error: 'Could not detect a transparent cutout in the frame image.'
         });
+      }
+
+      // Check if request was cancelled during frame processing
+      if (isRequestCancelled) {
+        console.log(`⚠️ Request cancelled during frame processing for job_${timestamp}`);
+        return;
       }
 
       // Resize page image to match cutout dimensions while preserving aspect ratio
@@ -530,6 +586,18 @@ app.post('/render', upload.fields([
       // Wait for current batch to complete before starting next batch
       await Promise.all(batchPromises);
       console.log(`Generated frames ${batchStart + 1}-${batchEnd} of ${totalFrames}`);
+
+      // Check if request was cancelled during frame generation
+      if (isRequestCancelled) {
+        console.log(`⚠️ Request cancelled during frame generation for job_${timestamp}`);
+        return;
+      }
+    }
+
+    // Check if request was cancelled before video generation
+    if (isRequestCancelled) {
+      console.log(`⚠️ Request cancelled before video generation for job_${timestamp}`);
+      return;
     }
 
     // Generate video using FFmpeg
@@ -554,42 +622,25 @@ app.post('/render', upload.fields([
     res.setHeader('Content-Type', 'video/mp4');
     res.setHeader('Content-Disposition', `attachment; filename="scroll_${Date.now()}.mp4"`);
 
-    // Store cleanup data for after successful delivery
-    const cleanupData = {
-      sessionDir,
-      timestamp,
-      uploadedFiles: []
-    };
-
-    if (req.files['frame'] && req.files['frame'][0]) {
-      cleanupData.uploadedFiles.push({
-        path: req.files['frame'][0].path,
-        type: 'frame'
-      });
-    }
-
-    if (req.files['page'] && req.files['page'][0]) {
-      cleanupData.uploadedFiles.push({
-        path: req.files['page'][0].path,
-        type: 'page'
-      });
-    }
-
     // Cleanup only after successful video delivery
     res.on('finish', async() => {
-      console.log(`📤 Video delivered successfully for job_${timestamp}`);
-      await performJobCleanup(cleanupData, 'success');
+      if (!isRequestCancelled) {
+        console.log(`📤 Video delivered successfully for job_${timestamp}`);
+        await performJobCleanup(cleanupData, 'success');
+      }
     });
 
     // Handle cleanup on response error/abort
     res.on('error', async(error) => {
-      console.error(`❌ Response error for job_${timestamp}:`, error.message);
-      await performJobCleanup(cleanupData, 'response-error');
+      if (!isRequestCancelled) {
+        console.error(`❌ Response error for job_${timestamp}:`, error.message);
+        await performJobCleanup(cleanupData, 'response-error');
+      }
     });
 
     // Handle cleanup on client disconnect/abort
     res.on('close', async() => {
-      if (!res.writableEnded) {
+      if (!res.writableEnded && !isRequestCancelled) {
         console.warn(`⚠️ Client disconnected during job_${timestamp}`);
         await performJobCleanup(cleanupData, 'client-disconnect');
       }
